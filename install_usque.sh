@@ -46,12 +46,20 @@ echo "正在下载并编译usque..."
 git clone https://github.com/Diniboy1123/usque.git
 cd usque
 
+# 显示当前目录和Go环境
+echo "当前目录: $(pwd)"
+echo "Go版本: $(go version)"
+echo "GOPATH: $GOPATH"
+echo "GOMODCACHE: $GOMODCACHE"
+
 # 初始化Go模块
+echo "初始化Go模块..."
 go mod init usque
 go mod tidy
 
 # 编译
-go build -o usque
+echo "开始编译..."
+go build -v -o usque
 
 # 检查编译是否成功
 if [ ! -f "usque" ]; then
@@ -61,6 +69,17 @@ fi
 
 # 设置执行权限
 chmod +x usque
+
+# 验证可执行文件
+echo "验证可执行文件..."
+if [ ! -x "usque" ]; then
+    echo "可执行文件权限设置失败"
+    exit 1
+fi
+
+# 测试运行
+echo "测试运行可执行文件..."
+./usque -version || echo "版本检查失败，但继续安装..."
 
 # 创建配置文件
 cat > config.yaml << EOF
@@ -83,6 +102,9 @@ Restart=always
 RestartSec=3
 User=root
 Group=root
+Environment=GOPATH=/root/go
+Environment=GOMODCACHE=/root/go/pkg/mod
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/go/bin
 
 [Install]
 WantedBy=multi-user.target
@@ -112,6 +134,10 @@ if systemctl is-active --quiet usque; then
 else
     echo "服务启动失败，请检查日志："
     journalctl -u usque -n 50
+    echo "检查可执行文件："
+    ls -l $WORK_DIR/usque/usque
+    echo "检查配置文件："
+    cat $WORK_DIR/usque/config.yaml
     exit 1
 fi
 
