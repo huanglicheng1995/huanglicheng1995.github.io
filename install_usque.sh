@@ -29,6 +29,13 @@ if ! command -v go >/dev/null 2>&1; then
     fi
 fi
 
+# 设置Go环境变量
+echo "设置Go环境变量..."
+export GOPATH=/root/go
+export GOMODCACHE=$GOPATH/pkg/mod
+export PATH=$PATH:$GOPATH/bin
+mkdir -p $GOPATH
+
 # 创建工作目录
 WORK_DIR="/opt/usque"
 mkdir -p $WORK_DIR
@@ -38,7 +45,22 @@ cd $WORK_DIR
 echo "正在下载并编译usque..."
 git clone https://github.com/Diniboy1123/usque.git
 cd usque
+
+# 初始化Go模块
+go mod init usque
+go mod tidy
+
+# 编译
 go build -o usque
+
+# 检查编译是否成功
+if [ ! -f "usque" ]; then
+    echo "编译失败，请检查错误信息"
+    exit 1
+fi
+
+# 设置执行权限
+chmod +x usque
 
 # 创建配置文件
 cat > config.yaml << EOF
@@ -59,6 +81,8 @@ WorkingDirectory=$WORK_DIR/usque
 ExecStart=$WORK_DIR/usque/usque -config config.yaml
 Restart=always
 RestartSec=3
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
@@ -67,14 +91,29 @@ EOF
 # 重新加载systemd配置
 systemctl daemon-reload
 
+# 检查服务文件是否存在
+if [ ! -f "/etc/systemd/system/usque.service" ]; then
+    echo "服务文件创建失败"
+    exit 1
+fi
+
 # 启动服务
 echo "正在启动usque服务..."
 systemctl enable usque
 systemctl start usque
 
+# 等待服务启动
+sleep 5
+
 # 检查服务状态
 echo "检查服务状态..."
-systemctl status usque
+if systemctl is-active --quiet usque; then
+    echo "服务启动成功！"
+else
+    echo "服务启动失败，请检查日志："
+    journalctl -u usque -n 50
+    exit 1
+fi
 
 echo "安装完成！"
 echo "SOCKS5代理已配置在端口12500"
