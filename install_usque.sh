@@ -10,83 +10,48 @@ fi
 echo "正在安装依赖..."
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    apt-get install -y git golang-go build-essential
+    apt-get install -y wget unzip
 elif command -v yum >/dev/null 2>&1; then
     yum update -y
-    yum install -y git golang gcc make
+    yum install -y wget unzip
 else
     echo "不支持的操作系统，请手动安装依赖"
     exit 1
 fi
-
-# 检查Go版本
-if ! command -v go >/dev/null 2>&1; then
-    echo "Go未安装，正在安装最新版本..."
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get install -y golang-go
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y golang
-    fi
-fi
-
-# 设置Go环境变量
-echo "设置Go环境变量..."
-export GOPATH=/root/go
-export GOMODCACHE=$GOPATH/pkg/mod
-export PATH=$PATH:$GOPATH/bin
-mkdir -p $GOPATH
 
 # 创建工作目录
 WORK_DIR="/opt/usque"
 mkdir -p $WORK_DIR
 cd $WORK_DIR
 
-# 克隆并编译usque
-echo "正在下载并编译usque..."
-git clone https://github.com/Diniboy1123/usque.git
-cd usque
-
-# 显示当前目录和Go环境
-echo "当前目录: $(pwd)"
-echo "Go版本: $(go version)"
-echo "GOPATH: $GOPATH"
-echo "GOMODCACHE: $GOMODCACHE"
-
-# 初始化Go模块
-echo "初始化Go模块..."
-go mod init usque
-go mod tidy
-
-# 编译
-echo "开始编译..."
-go build -v -o usque
-
-# 检查编译是否成功
-if [ ! -f "usque" ]; then
-    echo "编译失败，请检查错误信息"
+# 下载最新版本
+echo "正在下载usque..."
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/Diniboy1123/usque/releases/latest | grep "tag_name" | cut -d '"' -f 4)
+if [ -z "$LATEST_RELEASE" ]; then
+    echo "无法获取最新版本信息"
     exit 1
 fi
 
-# 设置执行权限
+# 检测系统架构
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ]; then
+    ARCH="arm64"
+else
+    echo "不支持的架构: $ARCH"
+    exit 1
+fi
+
+# 下载对应架构的二进制文件
+DOWNLOAD_URL="https://github.com/Diniboy1123/usque/releases/download/${LATEST_RELEASE}/usque_${LATEST_RELEASE}_linux_${ARCH}.zip"
+echo "下载地址: $DOWNLOAD_URL"
+wget -O usque.zip "$DOWNLOAD_URL"
+
+# 解压文件
+echo "正在解压文件..."
+unzip -o usque.zip
 chmod +x usque
-
-# 验证可执行文件
-echo "验证可执行文件..."
-if [ ! -x "usque" ]; then
-    echo "可执行文件权限设置失败"
-    exit 1
-fi
-
-# 测试运行
-echo "测试运行可执行文件..."
-./usque -version || echo "版本检查失败，但继续安装..."
-
-# 创建配置文件
-cat > config.yaml << EOF
-proxy:
-  type: socks5
-  listen: "0.0.0.0:12500"
-EOF
 
 # 创建systemd服务
 cat > /etc/systemd/system/usque.service << EOF
@@ -96,15 +61,12 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=$WORK_DIR/usque
-ExecStart=$WORK_DIR/usque/usque -config config.yaml
+WorkingDirectory=$WORK_DIR
+ExecStart=$WORK_DIR/usque socks -p 12500
 Restart=always
 RestartSec=3
 User=root
 Group=root
-Environment=GOPATH=/root/go
-Environment=GOMODCACHE=/root/go/pkg/mod
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/go/bin
 
 [Install]
 WantedBy=multi-user.target
@@ -113,11 +75,9 @@ EOF
 # 重新加载systemd配置
 systemctl daemon-reload
 
-# 检查服务文件是否存在
-if [ ! -f "/etc/systemd/system/usque.service" ]; then
-    echo "服务文件创建失败"
-    exit 1
-fi
+# 注册服务
+echo "正在注册usque服务..."
+$WORK_DIR/usque register
 
 # 启动服务
 echo "正在启动usque服务..."
@@ -134,10 +94,6 @@ if systemctl is-active --quiet usque; then
 else
     echo "服务启动失败，请检查日志："
     journalctl -u usque -n 50
-    echo "检查可执行文件："
-    ls -l $WORK_DIR/usque/usque
-    echo "检查配置文件："
-    cat $WORK_DIR/usque/config.yaml
     exit 1
 fi
 
